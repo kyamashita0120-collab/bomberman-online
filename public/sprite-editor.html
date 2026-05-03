@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>ドット絵スプライトエディター</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background:#111; color:#eee; font-family:'Segoe UI',sans-serif; padding:16px; }
+h1 { color:#ffa502; font-size:20px; letter-spacing:3px; margin-bottom:16px; text-align:center; }
+#app { display:flex; gap:20px; align-items:flex-start; justify-content:center; flex-wrap:wrap; }
+
+/* ── 左: エディター ── */
+#editor-col { display:flex; flex-direction:column; gap:12px; }
+#frame-tabs { display:flex; flex-wrap:wrap; gap:4px; }
+.tab { padding:5px 10px; background:#222; border:1px solid #444; border-radius:4px;
+       cursor:pointer; font-size:12px; color:#aaa; transition:all .15s; }
+.tab:hover { background:#333; color:#fff; }
+.tab.active { background:#ffa502; color:#000; border-color:#ffa502; font-weight:700; }
+
+#grid-wrap { position:relative; border:2px solid #444; }
+#grid { display:grid; grid-template-columns:repeat(8,48px); grid-template-rows:repeat(8,48px);
+        cursor:crosshair; user-select:none; }
+.cell { border:1px solid #2a2a2a; transition:background .05s; }
+.cell:hover { outline:2px solid rgba(255,255,255,0.5); outline-offset:-1px; }
+
+/* ── 中央: パレット ── */
+#palette-col { display:flex; flex-direction:column; gap:10px; min-width:140px; }
+#palette { display:flex; flex-direction:column; gap:6px; }
+.pal-item { display:flex; align-items:center; gap:8px; padding:6px 10px;
+            border:2px solid #333; border-radius:6px; cursor:pointer; transition:all .15s; }
+.pal-item:hover { border-color:#888; }
+.pal-item.active { border-color:#ffa502; background:rgba(255,165,2,.15); }
+.pal-swatch { width:24px; height:24px; border:1px solid #555; border-radius:3px; flex-shrink:0; }
+.pal-label { font-size:12px; color:#aaa; }
+.pal-key { font-weight:700; color:#fff; width:14px; }
+
+#eraser-btn { padding:8px; background:#333; border:2px solid #555; border-radius:6px;
+              cursor:pointer; font-size:13px; text-align:center; }
+#eraser-btn:hover { border-color:#aaa; }
+#eraser-btn.active { border-color:#ff4757; background:rgba(255,71,87,.2); color:#ff4757; }
+
+/* ── 右: プレビュー ── */
+#preview-col { display:flex; flex-direction:column; gap:12px; }
+#preview-row { display:flex; gap:16px; }
+.preview-box { text-align:center; }
+.preview-box p { font-size:11px; color:#666; margin-bottom:4px; }
+canvas.preview-canvas { image-rendering:pixelated; border:1px solid #333; }
+
+/* ── ボタン群 ── */
+#buttons { display:flex; gap:8px; flex-wrap:wrap; margin-top:4px; }
+button { padding:8px 16px; border:none; border-radius:6px; cursor:pointer;
+         font-size:13px; font-weight:700; transition:all .15s; }
+button:hover { filter:brightness(1.15); }
+#btn-apply  { background:#ff4757; color:#fff; font-size:14px; }
+#btn-apply.ok { background:#2ed573 !important; color:#000; }
+#btn-export { background:#ffa502; color:#000; }
+#btn-copyjs { background:#2ed573; color:#000; }
+#btn-clear  { background:#555; color:#fff; }
+#btn-flip-h { background:#1e90ff; color:#fff; }
+
+/* ── JS出力 ── */
+#js-output { background:#1a1a1a; border:1px solid #333; border-radius:6px;
+             padding:10px; font-family:monospace; font-size:11px; color:#4fc; white-space:pre;
+             max-width:600px; overflow-x:auto; display:none; margin-top:8px; }
+</style>
+</head>
+<body>
+<h1>ドット絵スプライトエディター</h1>
+<div id="app">
+
+  <!-- エディター -->
+  <div id="editor-col">
+    <div id="frame-tabs"></div>
+    <div id="grid-wrap"><div id="grid"></div></div>
+    <div id="buttons">
+      <button id="btn-apply">🎮 ゲームに適用</button>
+      <button id="btn-export">PNG書き出し</button>
+      <button id="btn-copyjs">JSコードコピー</button>
+      <button id="btn-flip-h">左右反転コピー</button>
+      <button id="btn-clear">クリア</button>
+    </div>
+    <div id="js-output"></div>
+  </div>
+
+  <!-- パレット -->
+  <div id="palette-col">
+    <strong style="font-size:13px;color:#888">パレット</strong>
+    <div id="palette"></div>
+    <div id="eraser-btn">🧹 消しゴム (_)</div>
+    <div style="margin-top:8px;font-size:11px;color:#555">左クリック: 塗る<br>右クリック: 消す<br>ドラッグ: 連続塗り</div>
+  </div>
+
+  <!-- プレビュー -->
+  <div id="preview-col">
+    <strong style="font-size:13px;color:#888">プレビュー (6倍)</strong>
+    <div id="preview-row"></div>
+    <strong style="font-size:13px;color:#888;margin-top:4px;">アニメ (down)</strong>
+    <div id="anim-row" style="display:flex;gap:16px;"></div>
+    <strong style="font-size:13px;color:#888;margin-top:4px;">スプライトシート全コマ</strong>
+    <canvas id="sheet-canvas" style="image-rendering:pixelated;border:1px solid #333;margin-top:4px;"></canvas>
+  </div>
+</div>
+
+<script>
+// ── 定数 ─────────────────────────────────────────────────────
+const PLAYER_COLORS = ['#ff4757','#2ed573','#1e90ff','#ffa502'];
+const FRAME_KEYS = ['down0','down1','up0','up1','left0','left1','right0','right1'];
+const FRAME_LABELS = ['下0','下1','上0','上1','左0','左1','右0','右1'];
+
+const PALETTE_DEF = [
+  { key:'H', label:'帽子 (プレイヤー色)',  ref:'player' },
+  { key:'D', label:'帽子影',              ref:'playerDark' },
+  { key:'S', label:'肌',                  color:'#FFBB88' },
+  { key:'E', label:'目',                  color:'#111111' },
+  { key:'W', label:'白ボディ',            color:'#EEEEEE' },
+  { key:'G', label:'影',                  color:'#AAAAAA' },
+  { key:'P', label:'ズボン',              color:'#222222' },
+  { key:'B', label:'ブーツ',              ref:'playerDark' },
+];
+
+// ── デフォルトスプライト ──────────────────────────────────────
+const DEFAULT = {
+  down0: ['_HHHHHH_','_HSSSSH_','_HSESEH_','_HSSSSH_','_WWWWWW_','_WWGGWW_','PP____PP','BB____BB'],
+  down1: ['_HHHHHH_','_HSSSSH_','_HSESEH_','_HSSSSH_','_WWWWWW_','_WWGGWW_','_PP__PP_','_BB__BB_'],
+  up0:   ['_HHHHHH_','_HHHHHH_','_DDHHDD_','_HHHHHH_','_WWWWWW_','_WGGGGW_','PP____PP','BB____BB'],
+  up1:   ['_HHHHHH_','_HHHHHH_','_DDHHDD_','_HHHHHH_','_WWWWWW_','_WGGGGW_','_PP__PP_','_BB__BB_'],
+  left0: ['__HHHH__','__HSSH__','__HSEH__','__HSSH__','__WWWW__','__WGWW__','_PP_____','_BB_____'],
+  left1: ['__HHHH__','__HSSH__','__HSEH__','__HSSH__','__WWWW__','__WGWW__','___PP___','___BB___'],
+  right0:['__HHHH__','__HSSH__','__HESH__','__HSSH__','__WWWW__','__WWGW__','_____PP_','_____BB_'],
+  right1:['__HHHH__','__HSSH__','__HESH__','__HSSH__','__WWWW__','__WWGW__','___PP___','___BB___'],
+};
+
+// ── 状態 ─────────────────────────────────────────────────────
+const data = {};
+for (const k of FRAME_KEYS) {
+  data[k] = DEFAULT[k].map(row => row.split(''));
+}
+// localStorage に保存済みのスプライトがあれば読み込む
+try {
+  const saved = localStorage.getItem('bombermanSprites');
+  if (saved) {
+    const parsed = JSON.parse(saved);
+    for (const k of FRAME_KEYS) {
+      if (parsed[k] && Array.isArray(parsed[k]) && parsed[k].length === 8)
+        data[k] = parsed[k].map(row => (typeof row === 'string' ? row : row.join('')).split(''));
+    }
+  }
+} catch(e) {}
+
+let currentFrame = 'down0';
+let currentColor = 'H';
+let painting = false;
+let paintValue = null;
+
+// ── ヘルパー ─────────────────────────────────────────────────
+function resolveColor(key, playerColor) {
+  const def = PALETTE_DEF.find(p => p.key === key);
+  if (!def) return '#FF00FF';
+  if (def.ref === 'player') return playerColor;
+  if (def.ref === 'playerDark') return darkenHex(playerColor, 0.55);
+  return def.color;
+}
+function darkenHex(hex, f) {
+  return `rgb(${[1,3,5].map(i=>Math.round(parseInt(hex.slice(i,i+2),16)*f)).join(',')})`;
+}
+function hexToRgba(hex) {
+  return { r:parseInt(hex.slice(1,3),16), g:parseInt(hex.slice(3,5),16), b:parseInt(hex.slice(5,7),16) };
+}
+
+// ── グリッド構築 ─────────────────────────────────────────────
+const grid = document.getElementById('grid');
+const cells = [];
+for (let r = 0; r < 8; r++) {
+  cells[r] = [];
+  for (let c = 0; c < 8; c++) {
+    const div = document.createElement('div');
+    div.className = 'cell';
+    div.dataset.r = r; div.dataset.c = c;
+    grid.appendChild(div);
+    cells[r][c] = div;
+  }
+}
+
+function paint(r, c, value) {
+  data[currentFrame][r][c] = value;
+  refreshCell(r, c);
+  refreshPreviews();
+  refreshSheet();
+}
+
+function refreshCell(r, c) {
+  const ch = data[currentFrame][r][c];
+  cells[r][c].style.background = ch === '_' ? 'transparent' : (resolveColor(ch, '#ff4757') || '#FF00FF');
+}
+
+function refreshAllCells() {
+  for (let r = 0; r < 8; r++)
+    for (let c = 0; c < 8; c++)
+      refreshCell(r, c);
+}
+
+grid.addEventListener('mousedown', e => {
+  if (e.button === 2) { e.preventDefault(); return; }
+  painting = true;
+  const { r, c } = e.target.dataset;
+  if (r === undefined) return;
+  paintValue = currentColor === '_' ? '_' : currentColor;
+  paint(+r, +c, paintValue);
+});
+grid.addEventListener('mouseover', e => {
+  if (!painting) return;
+  const { r, c } = e.target.dataset;
+  if (r !== undefined) paint(+r, +c, paintValue);
+});
+grid.addEventListener('contextmenu', e => {
+  e.preventDefault();
+  const { r, c } = e.target.dataset;
+  if (r !== undefined) paint(+r, +c, '_');
+});
+document.addEventListener('mouseup', () => { painting = false; });
+
+// ── フレームタブ ─────────────────────────────────────────────
+const tabsEl = document.getElementById('frame-tabs');
+FRAME_KEYS.forEach((key, i) => {
+  const btn = document.createElement('div');
+  btn.className = 'tab' + (key === currentFrame ? ' active' : '');
+  btn.textContent = FRAME_LABELS[i];
+  btn.addEventListener('click', () => {
+    currentFrame = key;
+    document.querySelectorAll('.tab').forEach((t,j) => t.classList.toggle('active', FRAME_KEYS[j]===key));
+    refreshAllCells();
+  });
+  tabsEl.appendChild(btn);
+});
+
+// ── パレットUI ───────────────────────────────────────────────
+const palEl = document.getElementById('palette');
+PALETTE_DEF.forEach(def => {
+  const item = document.createElement('div');
+  item.className = 'pal-item' + (def.key === currentColor ? ' active' : '');
+  item.dataset.key = def.key;
+  const color = def.ref ? (def.ref === 'player' ? '#ff4757' : darkenHex('#ff4757', 0.55)) : def.color;
+  item.innerHTML = `<div class="pal-key">${def.key}</div><div class="pal-swatch" style="background:${color}"></div><div class="pal-label">${def.label}</div>`;
+  item.addEventListener('click', () => {
+    currentColor = def.key;
+    document.querySelectorAll('.pal-item').forEach(el => el.classList.toggle('active', el.dataset.key===def.key));
+    document.getElementById('eraser-btn').classList.remove('active');
+  });
+  palEl.appendChild(item);
+});
+document.getElementById('eraser-btn').addEventListener('click', () => {
+  currentColor = '_';
+  document.querySelectorAll('.pal-item').forEach(el => el.classList.remove('active'));
+  document.getElementById('eraser-btn').classList.add('active');
+});
+
+// ── プレビュー構築 ────────────────────────────────────────────
+const PREVIEW_SCALE = 6;
+const previewRow = document.getElementById('preview-row');
+const animRow = document.getElementById('anim-row');
+const previewCanvases = [];
+const animCanvases = [];
+
+PLAYER_COLORS.forEach((col, i) => {
+  // 通常プレビュー
+  const box = document.createElement('div');
+  box.className = 'preview-box';
+  box.innerHTML = `<p>P${i+1}</p>`;
+  const cv = document.createElement('canvas');
+  cv.className = 'preview-canvas';
+  cv.width = 8 * PREVIEW_SCALE; cv.height = 8 * PREVIEW_SCALE;
+  box.appendChild(cv);
+  previewRow.appendChild(box);
+  previewCanvases.push({ canvas: cv, color: col });
+
+  // アニメプレビュー
+  const ab = document.createElement('div');
+  ab.className = 'preview-box';
+  ab.innerHTML = `<p>P${i+1}</p>`;
+  const acv = document.createElement('canvas');
+  acv.className = 'preview-canvas';
+  acv.width = 8 * PREVIEW_SCALE; acv.height = 8 * PREVIEW_SCALE;
+  ab.appendChild(acv);
+  animRow.appendChild(ab);
+  animCanvases.push({ canvas: acv, color: col });
+});
+
+function drawSpriteOnCanvas(cv, sprData, playerColor) {
+  const ct = cv.getContext('2d');
+  ct.clearRect(0,0,cv.width,cv.height);
+  ct.imageSmoothingEnabled = false;
+  const sc = cv.width / 8;
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      const ch = sprData[r][c];
+      if (ch === '_') continue;
+      ct.fillStyle = resolveColor(ch, playerColor);
+      ct.fillRect(c*sc, r*sc, sc, sc);
+    }
+  }
+}
+
+function refreshPreviews() {
+  previewCanvases.forEach(({ canvas, color }) => {
+    drawSpriteOnCanvas(canvas, data[currentFrame], color);
+  });
+}
+
+// ── スプライトシート ──────────────────────────────────────────
+const SHEET_SCALE = 3;
+const sheetCanvas = document.getElementById('sheet-canvas');
+sheetCanvas.width  = FRAME_KEYS.length * 8 * SHEET_SCALE;
+sheetCanvas.height = PLAYER_COLORS.length * 8 * SHEET_SCALE;
+
+function refreshSheet() {
+  const ct = sheetCanvas.getContext('2d');
+  ct.clearRect(0, 0, sheetCanvas.width, sheetCanvas.height);
+  ct.imageSmoothingEnabled = false;
+  const fs = 8 * SHEET_SCALE;
+  PLAYER_COLORS.forEach((col, ci) => {
+    FRAME_KEYS.forEach((key, fi) => {
+      const spr = data[key];
+      for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
+        const ch = spr[r][c];
+        if (ch === '_') continue;
+        ct.fillStyle = resolveColor(ch, col);
+        ct.fillRect(fi*fs + c*SHEET_SCALE, ci*fs + r*SHEET_SCALE, SHEET_SCALE, SHEET_SCALE);
+      }
+    });
+  });
+}
+
+// ── アニメーションループ ──────────────────────────────────────
+let animPhase = 0;
+setInterval(() => {
+  const dir = currentFrame.replace(/[01]$/,'');
+  const key0 = dir + '0', key1 = dir + '1';
+  const spr = animPhase === 0 ? (data[key0] || data[currentFrame]) : (data[key1] || data[currentFrame]);
+  animCanvases.forEach(({ canvas, color }) => drawSpriteOnCanvas(canvas, spr, color));
+  animPhase ^= 1;
+}, 250);
+
+// ── ボタン ───────────────────────────────────────────────────
+document.getElementById('btn-apply').addEventListener('click', () => {
+  const sprData = {};
+  for (const key of FRAME_KEYS) sprData[key] = data[key].map(row => row.join(''));
+  localStorage.setItem('bombermanSprites', JSON.stringify(sprData));
+  const btn = document.getElementById('btn-apply');
+  btn.textContent = '✓ ゲームに適用しました！';
+  btn.classList.add('ok');
+  setTimeout(() => { btn.textContent = '🎮 ゲームに適用'; btn.classList.remove('ok'); }, 2500);
+});
+
+document.getElementById('btn-clear').addEventListener('click', () => {
+  data[currentFrame] = Array.from({length:8}, () => Array(8).fill('_'));
+  refreshAllCells();
+  refreshPreviews();
+  refreshSheet();
+});
+
+document.getElementById('btn-flip-h').addEventListener('click', () => {
+  const src = currentFrame;
+  const dir = src.replace(/[01]$/,'');
+  const num = src.slice(-1);
+  // 反転して対応フレームにコピー（left0 → right0 など）
+  const destDir = dir === 'left' ? 'right' : dir === 'right' ? 'left' : dir;
+  const destKey = destDir + num;
+  if (destKey === src && confirm('同じフレームを左右反転しますか？')) {
+    data[src] = data[src].map(row => [...row].reverse());
+    refreshAllCells(); refreshPreviews(); refreshSheet();
+  } else if (destKey !== src) {
+    data[destKey] = data[src].map(row => [...row].reverse());
+    alert(`${FRAME_LABELS[FRAME_KEYS.indexOf(src)]} を左右反転して ${FRAME_LABELS[FRAME_KEYS.indexOf(destKey)]} にコピーしました`);
+    refreshSheet();
+  }
+});
+
+document.getElementById('btn-copyjs').addEventListener('click', () => {
+  const lines = ['const SPRITES = {'];
+  FRAME_KEYS.forEach((key, i) => {
+    const rows = data[key].map(row => `'${row.join('')}'`).join(',');
+    const comma = i < FRAME_KEYS.length-1 ? ',' : '';
+    lines.push(`  ${key}: [${rows}]${comma}`);
+  });
+  lines.push('};');
+  const code = lines.join('\n');
+  navigator.clipboard.writeText(code).then(() => {
+    alert('クリップボードにコピーしました！\ngame.js の SPRITES 定数を置き換えてください。');
+  });
+  const out = document.getElementById('js-output');
+  out.textContent = code;
+  out.style.display = 'block';
+});
+
+document.getElementById('btn-export').addEventListener('click', () => {
+  // 4色 × 8フレーム のスプライトシートを大きく書き出し
+  const EXPSCALE = 4;
+  const FW = 8 * EXPSCALE, FH = 8 * EXPSCALE;
+  const W = FRAME_KEYS.length * FW;
+  const H = PLAYER_COLORS.length * FH;
+  const cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  const ct = cv.getContext('2d');
+  ct.imageSmoothingEnabled = false;
+  // ラベル列ヘッダーなし、純粋ピクセル
+  PLAYER_COLORS.forEach((col, ci) => {
+    FRAME_KEYS.forEach((key, fi) => {
+      const spr = data[key];
+      for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
+        const ch = spr[r][c];
+        if (ch === '_') continue;
+        ct.fillStyle = resolveColor(ch, col);
+        ct.fillRect(fi*FW + c*EXPSCALE, ci*FH + r*EXPSCALE, EXPSCALE, EXPSCALE);
+      }
+    });
+  });
+  // グリッド線
+  ct.strokeStyle = 'rgba(255,255,255,0.12)'; ct.lineWidth = 1;
+  for (let x = 0; x <= W; x += FW) { ct.beginPath(); ct.moveTo(x,0); ct.lineTo(x,H); ct.stroke(); }
+  for (let y = 0; y <= H; y += FH) { ct.beginPath(); ct.moveTo(0,y); ct.lineTo(W,y); ct.stroke(); }
+  // ダウンロード
+  const a = document.createElement('a');
+  a.download = 'sprites.png';
+  a.href = cv.toDataURL('image/png');
+  a.click();
+});
+
+// ── 初期表示 ─────────────────────────────────────────────────
+refreshAllCells();
+refreshPreviews();
+refreshSheet();
+</script>
+</body>
+</html>

@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bomberman Online</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <h1 class="title">BOMBERMAN ONLINE</h1>
+
+    <div id="game-wrap">
+      <canvas id="canvas"></canvas>
+
+      <div id="overlay">
+        <div id="overlay-content">
+          <div id="phase-lobby">
+            <h2>ロビー</h2>
+            <div id="lobby-status">接続中...</div>
+            <div id="player-slots"></div>
+            <p class="hint">2人以上でカウントダウン開始</p>
+            <a href="/sprite-editor.html" target="_blank" class="editor-link">✏️ スプライト編集</a>
+          </div>
+          <div id="phase-countdown" style="display:none">
+            <div id="countdown-num"></div>
+            <p>準備してください</p>
+          </div>
+          <div id="phase-over" style="display:none">
+            <div id="winner-text"></div>
+            <button onclick="location.reload()">もう一度プレイ</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="hud"></div>
+
+    <div id="controls">
+      <span>移動: ↑↓←→ or WASD</span>
+      <span>ボム: スペース / Z / Enter</span>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
