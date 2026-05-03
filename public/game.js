@@ -163,8 +163,8 @@ document.addEventListener('keyup', e => {
 });
 
 // ── Socket ───────────────────────────────────────────────────
-socket.on('joined', ({ idx, cnt }) => { myIdx = idx; setLobbyStatus(cnt); updateSlots(cnt, idx); });
-socket.on('lobby', ({ cnt }) => { setLobbyStatus(cnt); updateSlots(cnt, myIdx); });
+socket.on('joined', ({ idx, cnt, slots }) => { myIdx = idx; setLobbyStatus(cnt, slots); updateSlots(slots, idx); });
+socket.on('lobby', ({ cnt, slots }) => { setLobbyStatus(cnt, slots); updateSlots(slots, myIdx); });
 socket.on('countdown', n => {
   phase = 'countdown';
   showPhase('phase-countdown');
@@ -185,18 +185,35 @@ socket.on('gameOver', data => {
 });
 socket.on('full', () => alert('満員です。ページを更新してください。'));
 
-function setLobbyStatus(cnt) {
-  document.getElementById('lobby-status').textContent = `プレイヤー ${cnt} / 4　接続中`;
+let isReady = false;
+
+function toggleReady() {
+  socket.emit('ready');
 }
-function updateSlots(cnt, myI) {
-  const COLORS = ['#ff4757','#2ed573','#1e90ff','#ffa502'];
+
+function setLobbyStatus(cnt, slots) {
+  const readyCnt = slots ? slots.filter(p => p.ready).length : 0;
+  document.getElementById('lobby-status').textContent =
+    `プレイヤー ${cnt}/4　準備完了 ${readyCnt}/${cnt}`;
+  // ボタン表示更新
+  const mySlot = slots?.find(p => p.idx === myIdx);
+  isReady = mySlot?.ready || false;
+  const btn = document.getElementById('ready-btn');
+  if (btn) {
+    btn.textContent = isReady ? '✓ 準備完了！' : '準備OK';
+    btn.classList.toggle('ready', isReady);
+  }
+}
+
+function updateSlots(slots, myI) {
   const c = document.getElementById('player-slots');
   c.innerHTML = '';
   for (let i = 0; i < 4; i++) {
+    const player = slots?.find(p => p.idx === i);
     const s = document.createElement('div');
-    s.className = 'slot' + (i < cnt ? ' filled' : '') + (i === myI && i < cnt ? ' me' : '');
-    if (i < cnt) s.style.setProperty('--color', COLORS[i]);
-    s.textContent = i < cnt ? `P${i+1}` : '';
+    s.className = 'slot' + (player ? ' filled' : '') + (player?.idx === myI ? ' me' : '');
+    if (player) s.style.setProperty('--color', player.color);
+    if (player) s.innerHTML = `P${i+1}${player.ready ? '<span class="ready-mark">✓</span>' : ''}`;
     c.appendChild(s);
   }
 }

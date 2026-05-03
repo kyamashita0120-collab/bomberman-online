@@ -110,6 +110,32 @@ body {
 .hint {
   font-size: 13px;
   color: #666;
+  margin-top: 8px;
+}
+
+#ready-btn {
+  margin-top: 16px;
+  padding: 12px 40px;
+  font-size: 18px;
+  background: #333;
+  color: #aaa;
+  border: 2px solid #555;
+  border-radius: 8px;
+  transition: all 0.2s;
+}
+#ready-btn.ready {
+  background: #2ed573;
+  color: #000;
+  border-color: #2ed573;
+  box-shadow: 0 0 20px #2ed57388;
+}
+
+.slot .ready-mark {
+  display: inline-block;
+  margin-left: 4px;
+  color: #2ed573;
+  font-weight: 900;
+  font-size: 14px;
 }
 
 .editor-link {

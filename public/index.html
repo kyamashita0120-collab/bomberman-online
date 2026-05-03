@@ -19,7 +19,8 @@
             <h2>ロビー</h2>
             <div id="lobby-status">接続中...</div>
             <div id="player-slots"></div>
-            <p class="hint">2人以上でカウントダウン開始</p>
+            <button id="ready-btn" onclick="toggleReady()">準備OK</button>
+            <p class="hint" id="ready-hint">全員が準備OKでゲーム開始</p>
             <a href="/sprite-editor.html" target="_blank" class="editor-link">✏️ スプライト編集</a>
           </div>
           <div id="phase-countdown" style="display:none">

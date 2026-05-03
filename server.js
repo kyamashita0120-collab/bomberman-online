@@ -70,6 +70,7 @@ class Game {
       keys: { up: false, dn: false, lt: false, rt: false, bm: false },
       bmPressed: false, dir: 'down', moving: false,
       sword: false, invincible: false, swordCooldown: 0,
+      ready: false,
     };
     return true;
   }
@@ -312,34 +313,58 @@ function findRoom() {
   return r;
 }
 
+function lobbySlots(room) {
+  return Object.values(room.players).map(p => ({ idx: p.idx, color: p.color, ready: p.ready }));
+}
+
+function emitLobby(room) {
+  io.to(room.id).emit('lobby', { cnt: room.playerCount(), slots: lobbySlots(room) });
+}
+
+function tryStartCountdown(room) {
+  const players = Object.values(room.players);
+  if (players.length < 2 || !players.every(p => p.ready) || room._cdTimer || room.started) return;
+  let n = 3;
+  io.to(room.id).emit('countdown', n);
+  room._cdTimer = setInterval(() => {
+    n--;
+    if (n <= 0) {
+      clearInterval(room._cdTimer); room._cdTimer = null;
+      room.start();
+      io.to(room.id).emit('gameStart');
+    } else {
+      io.to(room.id).emit('countdown', n);
+    }
+  }, 1000);
+}
+
+function cancelCountdown(room) {
+  if (!room._cdTimer) return;
+  clearInterval(room._cdTimer); room._cdTimer = null;
+  io.to(room.id).emit('cdCancelled');
+}
+
 io.on('connection', socket => {
   let room = null;
 
   socket.on('join', () => {
     room = findRoom();
-    if (!room.addPlayer(socket.id)) {
-      socket.emit('full');
-      return;
-    }
+    if (!room.addPlayer(socket.id)) { socket.emit('full'); return; }
     socket.join(room.id);
-    const cnt = room.playerCount();
-    socket.emit('joined', { idx: room.players[socket.id].idx, cnt });
-    io.to(room.id).emit('lobby', { cnt });
+    const p = room.players[socket.id];
+    socket.emit('joined', { idx: p.idx, cnt: room.playerCount(), slots: lobbySlots(room) });
+    emitLobby(room);
+  });
 
-    if (cnt >= 2 && !room.started && !room._cdTimer) {
-      let n = 5;
-      io.to(room.id).emit('countdown', n);
-      room._cdTimer = setInterval(() => {
-        n--;
-        if (n <= 0) {
-          clearInterval(room._cdTimer);
-          room._cdTimer = null;
-          room.start();
-          io.to(room.id).emit('gameStart');
-        } else {
-          io.to(room.id).emit('countdown', n);
-        }
-      }, 1000);
+  socket.on('ready', () => {
+    const p = room?.players[socket.id];
+    if (!p || room.started) return;
+    p.ready = !p.ready;
+    emitLobby(room);
+    if (p.ready) {
+      tryStartCountdown(room);
+    } else {
+      cancelCountdown(room);
     }
   });
 
@@ -363,15 +388,10 @@ io.on('connection', socket => {
     room.removePlayer(socket.id);
     const cnt = room.playerCount();
     if (cnt === 0) {
-      room.stop();
-      rooms.delete(room.id);
+      room.stop(); rooms.delete(room.id);
     } else {
-      io.to(room.id).emit('lobby', { cnt });
-      if (cnt < 2 && !room.started && room._cdTimer) {
-        clearInterval(room._cdTimer);
-        room._cdTimer = null;
-        io.to(room.id).emit('cdCancelled');
-      }
+      emitLobby(room);
+      cancelCountdown(room);
     }
   });
 });
