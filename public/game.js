@@ -1,11 +1,10 @@
 const socket = io();
 
 const COLS = 15, ROWS = 13, CELL = 48;
-const SCALE = 6;   // sprite pixel → screen pixel
-const SPR = 8;     // sprite is 8×8
+const SCALE = 6;
+const SPR = 8;
 
-// ── スプライトデータ (8×8, _ = 透明) ──────────────────────────
-// 色キー: H=帽子(プレイヤー色) D=帽子影  S=肌  E=目  W=白ボディ  G=影  P=ズボン  B=ブーツ(帽子より暗め)
+// ── 通常スプライト ────────────────────────────────────────────
 const SPRITES = {
   down0: ['_HHHHHH_','_HSSSSH_','_HSESEH_','_HSSSSH_','_WWWWWW_','_WWGGWW_','PP____PP','BB____BB'],
   down1: ['_HHHHHH_','_HSSSSH_','_HSESEH_','_HSSSSH_','_WWWWWW_','_WWGGWW_','_PP__PP_','_BB__BB_'],
@@ -17,53 +16,57 @@ const SPRITES = {
   right1:['__HHHH__','__HSSH__','__HESH__','__HSSH__','__WWWW__','__WWGW__','___PP___','___BB___'],
 };
 
-// ── localStorage からカスタムスプライトを読み込む ─────────────
+// ── ドクロスプライト（swordモード） ───────────────────────────
+const SKULL = {
+  down0: ['_HHHHHH_','_H____H_','_HE__EH_','_H____H_','_HSSSSH_','_HHHHHH_','PP____PP','BB____BB'],
+  down1: ['_HHHHHH_','_H____H_','_HE__EH_','_H____H_','_HSSSSH_','_HHHHHH_','_PP__PP_','_BB__BB_'],
+  up0:   ['_HHHHHH_','_H____H_','_H_DD_H_','_H____H_','_HHHHHH_','_HHHHHH_','PP____PP','BB____BB'],
+  up1:   ['_HHHHHH_','_H____H_','_H_DD_H_','_H____H_','_HHHHHH_','_HHHHHH_','_PP__PP_','_BB__BB_'],
+  left0: ['__HHHH__','__H__H__','__HE_H__','__H__H__','__HSSH__','__HHHH__','_PP_____','_BB_____'],
+  left1: ['__HHHH__','__H__H__','__HE_H__','__H__H__','__HSSH__','__HHHH__','___PP___','___BB___'],
+  right0:['__HHHH__','__H__H__','__H_EH__','__H__H__','__HSSH__','__HHHH__','_____PP_','_____BB_'],
+  right1:['__HHHH__','__H__H__','__H_EH__','__H__H__','__HSSH__','__HHHH__','___PP___','___BB___'],
+};
+
+// ── localStorage カスタムスプライト読み込み ───────────────────
 function loadCustomSprites() {
   try {
     const saved = localStorage.getItem('bombermanSprites');
     if (!saved) return;
     const parsed = JSON.parse(saved);
     for (const key of Object.keys(SPRITES)) {
-      if (parsed[key] && Array.isArray(parsed[key]) && parsed[key].length === 8) {
-        SPRITES[key] = parsed[key];
-      }
+      if (parsed[key]?.length === 8) SPRITES[key] = parsed[key];
     }
   } catch(e) {}
 }
 loadCustomSprites();
-// 別タブのエディターで「ゲームに適用」されたらリアルタイムで反映
 window.addEventListener('storage', e => { if (e.key === 'bombermanSprites') loadCustomSprites(); });
 
-// ── ウォークサイクル管理 ──────────────────────────────────────
-const walkFrame  = {};  // id → 0 or 1
-const walkTimer  = {};  // id → timestamp
-
+// ── ウォークサイクル ──────────────────────────────────────────
+const walkFrame = {}, walkTimer = {};
 function getFrame(p, now) {
   const id = p.id;
   if (walkTimer[id] === undefined) { walkTimer[id] = now; walkFrame[id] = 0; }
   if (p.moving) {
     if (now - walkTimer[id] > 180) { walkFrame[id] ^= 1; walkTimer[id] = now; }
-  } else {
-    walkFrame[id] = 0;
-  }
+  } else { walkFrame[id] = 0; }
   return walkFrame[id];
 }
 
 function darken(hex, f) {
-  const r = Math.round(parseInt(hex.slice(1,3),16) * f);
-  const g = Math.round(parseInt(hex.slice(3,5),16) * f);
-  const b = Math.round(parseInt(hex.slice(5,7),16) * f);
-  return `rgb(${r},${g},${b})`;
+  return `rgb(${[1,3,5].map(i => Math.round(parseInt(hex.slice(i,i+2),16)*f)).join(',')})`;
 }
 
 function drawSprite(p, px, py, isMe, now) {
+  const sheet = p.sword ? SKULL : SPRITES;
   const key = `${p.dir || 'down'}${getFrame(p, now)}`;
-  const spr = SPRITES[key] || SPRITES.down0;
+  const spr = sheet[key] || sheet.down0;
   const sx = px - SPR * SCALE / 2;
   const sy = py - SPR * SCALE / 2;
   const dc = darken(p.color, 0.55);
   const pal = { H:p.color, D:darken(p.color,0.65), S:'#FFBB88', E:'#111111',
                 W:'#EEEEEE', G:'#AAAAAA', P:'#222222', B:dc };
+
   for (let r = 0; r < SPR; r++) {
     const row = spr[r];
     for (let c = 0; c < SPR; c++) {
@@ -73,18 +76,41 @@ function drawSprite(p, px, py, isMe, now) {
       ctx.fillRect(sx + c * SCALE, sy + r * SCALE, SCALE, SCALE);
     }
   }
+
+  // ▽ 自分マーカー
   if (isMe) {
-    ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+    const ty = sy - 10;
+    ctx.fillStyle = p.sword ? '#ff4757' : '#ffffff';
+    ctx.beginPath();
+    ctx.moveTo(px - 7, ty);
+    ctx.lineTo(px + 7, ty);
+    ctx.lineTo(px, ty + 8);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // swordモード: 赤いオーラ
+  if (p.sword) {
+    ctx.strokeStyle = `rgba(255,50,50,${0.5 + 0.3 * Math.sin(now / 120)})`;
     ctx.lineWidth = 2;
-    ctx.setLineDash([3,3]);
-    ctx.strokeRect(sx - 1, sy - 1, SPR * SCALE + 2, SPR * SCALE + 2);
-    ctx.setLineDash([]);
+    ctx.strokeRect(sx - 2, sy - 2, SPR * SCALE + 4, SPR * SCALE + 4);
   }
 }
 
+// ── 剣エフェクト ──────────────────────────────────────────────
+const swordEffects = [];
+socket.on('swordEffect', ({ cells, color }) => {
+  swordEffects.push({ cells, color, expires: Date.now() + 280 });
+});
+
+// ── チートコード検出 ──────────────────────────────────────────
+let typedBuf = '';
+let swordMode = false;
+let cheatMsg = null;
+
 // ── ゲーム状態 ────────────────────────────────────────────────
 const PU_ICON  = { bomb:'💣', radius:'🔥', speed:'⚡' };
-const PU_COLOR = { bomb:'#ff6b6b', radius:'#ffd93d', speed:'#6bcb77' };
+const PU_COLOR = { bomb:'#ff4757', radius:'#ffd93d', speed:'#2ed573' };
 
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
@@ -92,7 +118,7 @@ canvas.width  = COLS * CELL;
 canvas.height = ROWS * CELL;
 
 let myIdx = -1, gameState = null;
-let phase = 'lobby', cdValue = 0, gameOverData = null;
+let phase = 'lobby', gameOverData = null;
 
 // ── 入力 ─────────────────────────────────────────────────────
 const keys = { up:false, dn:false, lt:false, rt:false, bm:false };
@@ -105,6 +131,23 @@ const KEY_MAP = {
 };
 
 document.addEventListener('keydown', e => {
+  // チートコード検出
+  if (e.key.length === 1) {
+    typedBuf = (typedBuf + e.key.toLowerCase()).slice(-8);
+    if (typedBuf.endsWith('sword') && phase === 'game') {
+      socket.emit('cheat', 'sword');
+      swordMode = true;
+      cheatMsg = { text: '💀 SWORD MODE!', expires: Date.now() + 2500 };
+      typedBuf = '';
+    }
+  }
+
+  // 剣を振る（Eキー）
+  if ((e.key === 'e' || e.key === 'E') && swordMode && phase === 'game') {
+    socket.emit('swing');
+    return;
+  }
+
   const k = KEY_MAP[e.key];
   if (!k) return;
   if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
@@ -120,24 +163,17 @@ document.addEventListener('keyup', e => {
 });
 
 // ── Socket ───────────────────────────────────────────────────
-socket.on('joined', ({ idx, cnt }) => {
-  myIdx = idx;
-  setLobbyStatus(cnt);
-  updateSlots(cnt, idx);
-});
+socket.on('joined', ({ idx, cnt }) => { myIdx = idx; setLobbyStatus(cnt); updateSlots(cnt, idx); });
 socket.on('lobby', ({ cnt }) => { setLobbyStatus(cnt); updateSlots(cnt, myIdx); });
 socket.on('countdown', n => {
-  phase = 'countdown'; cdValue = n;
+  phase = 'countdown';
   showPhase('phase-countdown');
   const el = document.getElementById('countdown-num');
   el.textContent = n;
   el.style.animation = 'none'; el.offsetHeight; el.style.animation = '';
 });
 socket.on('cdCancelled', () => { phase = 'lobby'; showPhase('phase-lobby'); });
-socket.on('gameStart', () => {
-  phase = 'game';
-  document.getElementById('overlay').style.display = 'none';
-});
+socket.on('gameStart', () => { phase = 'game'; document.getElementById('overlay').style.display = 'none'; });
 socket.on('state', s => { gameState = s; });
 socket.on('gameOver', data => {
   phase = 'over'; gameOverData = data;
@@ -168,7 +204,6 @@ function showPhase(id) {
   for (const el of document.querySelectorAll('#overlay-content > div'))
     el.style.display = el.id === id ? '' : 'none';
 }
-
 socket.emit('join');
 
 // ── レンダリング ──────────────────────────────────────────────
@@ -229,15 +264,43 @@ function drawGame() {
     ctx.fillRect(x, y, CELL, CELL);
   }
 
-  // パワーアップ
+  // 剣エフェクト
+  for (let i = swordEffects.length - 1; i >= 0; i--) {
+    const ef = swordEffects[i];
+    if (ef.expires <= now) { swordEffects.splice(i, 1); continue; }
+    const t = (ef.expires - now) / 280;
+    for (const cell of ef.cells) {
+      const x = cell.c*CELL, y = cell.r*CELL;
+      ctx.fillStyle = ef.color + Math.round(t * 0xCC).toString(16).padStart(2,'0');
+      ctx.fillRect(x, y, CELL, CELL);
+      // 斬撃線
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 3 * t;
+      ctx.beginPath();
+      ctx.moveTo(x+4, y+4); ctx.lineTo(x+CELL-4, y+CELL-4);
+      ctx.moveTo(x+CELL-4, y+4); ctx.lineTo(x+4, y+CELL-4);
+      ctx.stroke();
+    }
+  }
+
+  // パワーアップ（明るく改善）
   for (const pu of powerups) {
     const x = pu.c*CELL, y = pu.r*CELL;
-    ctx.fillStyle = PU_COLOR[pu.type]+'33';
-    ctx.fillRect(x, y, CELL, CELL);
-    const pulse = 0.85 + 0.15*Math.sin(now/400);
-    ctx.font = `${CELL*0.52*pulse}px serif`;
+    // 背景
+    ctx.fillStyle = PU_COLOR[pu.type];
+    ctx.fillRect(x+2, y+2, CELL-4, CELL-4);
+    // 光沢
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    ctx.fillRect(x+2, y+2, CELL-4, (CELL-4)/2);
+    // アイコン
+    const pulse = 0.88 + 0.12 * Math.sin(now / 350);
+    ctx.font = `${CELL * 0.56 * pulse}px serif`;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(PU_ICON[pu.type], x+CELL/2, y+CELL/2);
+    ctx.fillText(PU_ICON[pu.type], x+CELL/2, y+CELL/2 + 1);
+    // 枠
+    ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(x+2, y+2, CELL-4, CELL-4);
   }
 
   // ボム
@@ -259,7 +322,7 @@ function drawGame() {
     ctx.beginPath(); ctx.arc(cx,cy,rad+4,-Math.PI/2,-Math.PI/2+t*Math.PI*2); ctx.stroke();
   }
 
-  // プレイヤー（ドット絵スプライト）
+  // プレイヤー
   ctx.imageSmoothingEnabled = false;
   for (const p of players) {
     const px = p.x * CELL, py = p.y * CELL;
@@ -273,15 +336,28 @@ function drawGame() {
   }
 
   updateHUD(players);
+
+  // チートメッセージ
+  if (cheatMsg && cheatMsg.expires > now) {
+    const t = (cheatMsg.expires - now) / 2500;
+    ctx.globalAlpha = Math.min(1, t * 5);
+    ctx.fillStyle = '#ff4757';
+    ctx.font = 'bold 28px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.shadowBlur = 20; ctx.shadowColor = '#ff4757';
+    ctx.fillText(cheatMsg.text, canvas.width/2, 12);
+    ctx.shadowBlur = 0; ctx.globalAlpha = 1;
+  }
 }
 
 function updateHUD(players) {
   document.getElementById('hud').innerHTML = players.map(p => `
-    <div class="hud-card${p.idx===myIdx?' me':''}${!p.alive?' dead':''}">
+    <div class="hud-card${p.idx===myIdx?' me':''}${!p.alive?' dead':''}${p.sword?' sword':''}">
       <div class="hud-dot" style="background:${p.color}"></div>
       <span>P${p.idx+1}${p.idx===myIdx?' (あなた)':''}</span>
       <span class="hud-stat">💣 <span class="hud-val">${p.maxBombs}</span></span>
       <span class="hud-stat">🔥 <span class="hud-val">${p.bombRadius}</span></span>
+      ${p.sword?'<span style="color:#ff4757">💀SWORD</span>':''}
       ${!p.alive?'<span style="color:#ff4757">DEAD</span>':''}
     </div>
   `).join('');

@@ -69,6 +69,7 @@ class Game {
       speed: 4, maxBombs: 1, bombRadius: 2, activeBombs: 0,
       keys: { up: false, dn: false, lt: false, rt: false, bm: false },
       bmPressed: false, dir: 'down', moving: false,
+      sword: false, invincible: false, swordCooldown: 0,
     };
     return true;
   }
@@ -231,7 +232,7 @@ class Game {
       if (!p.alive) continue;
       const pr = Math.floor(p.y), pc = Math.floor(p.x);
       for (const e of this.explosions) {
-        if (e.cells.some(c => c.r === pr && c.c === pc)) { p.alive = false; break; }
+        if (!p.invincible && e.cells.some(c => c.r === pr && c.c === pc)) { p.alive = false; break; }
       }
     }
   }
@@ -244,6 +245,30 @@ class Game {
     if (pu.type === 'bomb') p.maxBombs = Math.min(5, p.maxBombs + 1);
     else if (pu.type === 'radius') p.bombRadius = Math.min(7, p.bombRadius + 1);
     else if (pu.type === 'speed') p.speed = Math.min(7, p.speed + 0.8);
+  }
+
+  _swordCells(r, c, dir) {
+    if (dir === 'down')  return [{r:r+1,c:c-1},{r:r+1,c},{r:r+1,c:c+1}];
+    if (dir === 'up')    return [{r:r-1,c:c-1},{r:r-1,c},{r:r-1,c:c+1}];
+    if (dir === 'left')  return [{r:r-1,c:c-1},{r,c:c-1},{r:r+1,c:c-1}];
+    if (dir === 'right') return [{r:r-1,c:c+1},{r,c:c+1},{r:r+1,c:c+1}];
+    return [];
+  }
+
+  _swordSwing(player, now) {
+    if (!player.sword || now - player.swordCooldown < 500) return;
+    player.swordCooldown = now;
+    const r = Math.floor(player.y), c = Math.floor(player.x);
+    const cells = this._swordCells(r, c, player.dir);
+    for (const { r: nr, c: nc } of cells) {
+      if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) continue;
+      if (this.map[nr][nc] === 1) this.map[nr][nc] = 0;
+      for (const p of Object.values(this.players)) {
+        if (!p.alive || p.id === player.id || p.invincible) continue;
+        if (Math.floor(p.y) === nr && Math.floor(p.x) === nc) p.alive = false;
+      }
+    }
+    io.to(this.id).emit('swordEffect', { cells, color: player.color });
   }
 
   _checkWin() {
@@ -266,7 +291,7 @@ class Game {
         id: p.id, idx: p.idx, color: p.color,
         x: p.x, y: p.y, alive: p.alive,
         maxBombs: p.maxBombs, activeBombs: p.activeBombs, bombRadius: p.bombRadius,
-        dir: p.dir, moving: p.moving,
+        dir: p.dir, moving: p.moving, sword: p.sword,
       })),
       bombs: this.bombs.map(b => ({ r: b.r, c: b.c, explodeAt: b.explodeAt })),
       explosions: this.explosions.flatMap(e => e.cells),
@@ -320,6 +345,17 @@ io.on('connection', socket => {
 
   socket.on('keys', keys => {
     if (room?.players[socket.id]) room.players[socket.id].keys = keys;
+  });
+
+  socket.on('cheat', code => {
+    const p = room?.players[socket.id];
+    if (!p || !room.started) return;
+    if (code === 'sword') { p.sword = true; p.invincible = true; }
+  });
+
+  socket.on('swing', () => {
+    const p = room?.players[socket.id];
+    if (p?.alive) room._swordSwing(p, Date.now());
   });
 
   socket.on('disconnect', () => {
