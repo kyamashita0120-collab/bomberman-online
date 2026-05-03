@@ -3,12 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Bomberman Online</title>
+  <title>Arcade Online</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div id="app">
-    <h1 class="title">BOMBERMAN ONLINE</h1>
+    <h1 class="title">ARCADE ONLINE</h1>
+    <div id="game-label" style="font-size:14px;color:#ffa502;letter-spacing:2px;min-height:18px;"></div>
 
     <div id="game-wrap">
       <canvas id="canvas"></canvas>
@@ -17,6 +18,7 @@
         <div id="overlay-content">
           <div id="phase-lobby">
             <h2>ロビー</h2>
+            <div id="lobby-game-label" style="color:#ffa502;font-size:15px;margin-bottom:8px;"></div>
             <div id="lobby-status">接続中...</div>
             <div id="player-slots"></div>
             <button id="ready-btn" onclick="toggleReady()">準備OK</button>
@@ -29,7 +31,9 @@
           </div>
           <div id="phase-over" style="display:none">
             <div id="winner-text"></div>
-            <button onclick="location.reload()">もう一度プレイ</button>
+            <div id="next-game-label" style="color:#aaa;font-size:14px;margin-bottom:16px;"></div>
+            <p style="color:#666;font-size:13px;margin-bottom:16px;">4秒後にロビーへ戻ります</p>
+            <button onclick="location.reload()">最初からやり直す</button>
           </div>
         </div>
       </div>
@@ -38,8 +42,9 @@
     <div id="hud"></div>
 
     <div id="controls">
-      <span>移動: ↑↓←→ or WASD</span>
-      <span>ボム: スペース / Z / Enter</span>
+      <span>移動: ↑↓←→ / WASD</span>
+      <span>ボム/射撃: スペース / Z</span>
+      <span>テトリス: ↑回転 ↓落下 Space確定</span>
     </div>
   </div>
 
